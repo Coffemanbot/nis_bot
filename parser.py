@@ -10,13 +10,13 @@ import aiofiles
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 from config import DB_CONFIG, BASE_URL
-
-MENU_URL = f"{BASE_URL}/menu"
+from rest import get_links
 
 MAX_CONCURRENT_REQUESTS = 20
 FETCH_DELAY_RANGE = (0.01, 0.02)
 SCROLL_PAUSE_TIME = 0
 MAX_SCROLLS = 20
+parsing_restaurants = set()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -60,7 +60,7 @@ async def scroll_to_bottom(page, pause_time: float = SCROLL_PAUSE_TIME, max_scro
             break
 
 
-async def get_categories_and_dishes(page, url: str) -> dict:
+async def get_categories_and_items(page, url: str) -> dict:
     logging.info(f"Переходим на страницу: {url}")
     await page.goto(url, timeout=60000, wait_until="domcontentloaded")
     await asyncio.sleep(1)
@@ -113,7 +113,6 @@ async def download_image(img_url, session, category, dish_name):
     output_path = os.path.join(dir_path, f"{safe_dish_name}{file_extension}")
 
     if os.path.exists(output_path):
-        logging.info(f"Изображение уже существует: {output_path}")
         return output_path
 
     try:
@@ -135,38 +134,41 @@ async def download_image(img_url, session, category, dish_name):
         return img_url
 
 
-async def parse_dish(url, session, category, semaphore):
+def get_restaurant_id_for_item(item_url: str, restaurant_links: dict):
+    for rest_id, links in restaurant_links.items():
+        menu_url = links.get("restaurant_menu", "")
+        if menu_url and item_url.startswith(menu_url):
+            return rest_id
+    return None
+
+
+async def parse_item(url, session, category, semaphore, restaurant_id):
     async with semaphore:
         html = await fetch(url, session)
         if html is None:
             logging.error(f"Не удалось получить данные со страницы {url}")
             return None
-
         try:
             soup = BeautifulSoup(html, "html.parser")
 
-            sku = None
+            # Получаем SKU из JSON-LD
+            item_id = None
             script_tag = soup.find("script", type="application/ld+json")
             if script_tag:
                 try:
                     data = json.loads(script_tag.string)
                     if isinstance(data, dict) and data.get("@type") == "Product":
-                        sku = int(data.get("sku"))
+                        item_id = int(data.get("sku"))
                 except Exception as E:
                     logging.warning(f"Ошибка парсинга JSON-LD для SKU на {url}: {E}")
 
-            item_info = soup.find("div", id="itemInfo")
-            if not item_info:
-                logging.error(f"Блок itemInfo не найден на {url}")
-                return None
-
-            name_tag = item_info.find("h1", class_="itemTitle")
+            name_tag = soup.find("h1", class_="itemTitle")
             name = clean_text(name_tag.text) if name_tag else "Нет названия"
 
-            description_tag = item_info.find("div", class_="itemDesc")
+            description_tag = soup.find("div", class_="itemDesc")
             description = clean_text(description_tag.text) if description_tag else "Нет описания"
 
-            price_tag = item_info.find("div", class_="itemPrice")
+            price_tag = soup.find("div", class_="itemPrice")
             if price_tag:
                 raw_price = price_tag.get_text(strip=True)
                 price = parse_price(raw_price)
@@ -174,34 +176,31 @@ async def parse_dish(url, session, category, semaphore):
                 price = "Нет цены"
 
             nutrition_values = {}
-            nutrition_section = item_info.find("div", class_="itemAboutValueContent")
+            nutrition_section = soup.find("div", class_="itemAboutValueContent")
             if nutrition_section:
                 for stat in nutrition_section.find_all("div", class_="itemStat"):
                     key_tag = stat.find("span")
                     if key_tag:
                         key = clean_text(key_tag.text)
-                        value = stat.text.replace(key, "")
-                        value = clean_text(value)
+                        value = clean_text(stat.text.replace(key, ""))
                         nutrition_values[key] = value
 
             composition = "Нет состава"
-            composition_section = item_info.find("div", class_="itemAboutCompositionContent")
+            composition_section = soup.find("div", class_="itemAboutCompositionContent")
             if composition_section:
                 composition_p = composition_section.find("p")
                 if composition_p:
                     composition = clean_text(composition_p.text)
 
-            allergens_section = item_info.find("p", style="font-style: italic")
-            allergens = clean_text(allergens_section.text) if allergens_section else "Нет информации"
+            allergens_section = soup.find("p", style="font-style: italic")
+            allergens = clean_text(allergens_section.text) if allergens_section else "Аллергены: отсутствуют"
 
             img_url = "Нет фото"
-
             item_image_div = soup.find("div", id="itemImage")
             if item_image_div:
                 img_tag = item_image_div.find("img", itemprop="contentUrl")
                 if img_tag and img_tag.has_attr("src"):
                     img_url = img_tag["src"]
-
             if img_url == "Нет фото":
                 slider = soup.find("div", id="itemSlider")
                 if slider:
@@ -217,13 +216,13 @@ async def parse_dish(url, session, category, semaphore):
                 elif not img_url.startswith("http"):
                     img_url = BASE_URL + img_url
 
-            processed_img = await download_image(img_url, session, category, name)
+            processed_img = await download_image(img_url, session, "items", name)
 
             time_label = soup.find("div", class_="timeLabel")
             timetable = time_label.get_text(strip=True) if time_label else ""
 
-            return {
-                "SKU": sku,
+            item = {
+                "SKU": item_id,
                 "Категория": category,
                 "Название": name,
                 "Цена": price,
@@ -233,24 +232,27 @@ async def parse_dish(url, session, category, semaphore):
                 "Аллергены": allergens,
                 "Фото": processed_img,
                 "В наличии": True,
-                "TimeTable": timetable
+                "TimeTable": timetable,
+                "restaurant_id": restaurant_id
             }
+            return item
         except Exception as E:
             logging.exception(f"Ошибка при разборе страницы {url}: {E}")
             return None
 
 
-async def save_dishes_to_db(db_pool, dishes: list):
-    if not dishes:
+async def save_items_to_db(db_pool, items: list, table_name: str):
+    if not items:
         return
 
-    query = """
-        INSERT INTO menu 
-            (id, category, name, price, calories, proteins, fats, carbohydrates, weight, 
+    query = f"""
+        INSERT INTO {table_name}
+            (id,restaurant_id, category, name, price, calories, proteins, fats, carbohydrates, weight,
              description, composition, allergens, image, availability, timetable)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-        ON CONFLICT (id, category) DO UPDATE 
-        SET name = EXCLUDED.name,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ON CONFLICT (id, restaurant_id) DO UPDATE
+        SET category = EXCLUDED.category,
+            name = EXCLUDED.name,
             price = EXCLUDED.price,
             calories = EXCLUDED.calories,
             proteins = EXCLUDED.proteins,
@@ -265,92 +267,145 @@ async def save_dishes_to_db(db_pool, dishes: list):
             timetable = EXCLUDED.timetable;
     """
     params_list = []
-    for dish in dishes:
-        sku = dish.get("SKU")
+    for item in items:
+        sku = item.get("SKU")
         if not sku:
-            logging.warning(f"Пропускаем блюдо без SKU: {dish.get('Название')}")
+            logging.warning(f"Пропускаем элемент без SKU: {item.get('Название')}")
             continue
-        category = dish.get("Категория", "Меню")
-        name = dish.get("Название", "Нет названия")
-        price = dish.get("Цена", "Нет цены")
-        description = dish.get("Описание", "Нет описания")
-        composition = dish.get("Состав", "Нет состава")
-        allergens = dish.get("Аллергены", "Нет информации")
-        img_url = dish.get("Фото", "Нет фото")
-        availability = dish.get("В наличии", True)
-        nutrition = dish.get("Пищевая ценность", {})
+        rest_id = item.get("restaurant_id")
+        if not rest_id:
+            logging.warning(f"Пропускаем элемент без restaurant_id: {item.get('Название')}")
+            continue
+
+        category = item.get("Категория", "Нет категории")
+        name = item.get("Название", "Нет названия")
+        price = item.get("Цена", "Нет цены")
+        description = item.get("Описание", "Нет описания")
+        composition = item.get("Состав", "Нет состава")
+        allergens = item.get("Аллергены", "Аллергены: отсутствуют")
+        img_url = item.get("Фото", "Нет фото")
+        availability = item.get("В наличии", True)
+        nutrition = item.get("Пищевая ценность", {})
         calories = parse_calories(nutrition.get("Ккал", "0"))
         proteins = nutrition.get("Белки", "Нет данных")
         fats = nutrition.get("Жиры", "Нет данных")
         carbs = nutrition.get("Углеводы", "Нет данных")
         weight = nutrition.get("Вес", "Нет данных")
-        timetable = dish.get("TimeTable", "Нет данных")
-        params_list.append((sku, category, name, price, calories,
-                            proteins, fats, carbs, weight,
-                            description, composition, allergens, img_url, availability, timetable))
+        timetable = item.get("TimeTable", "")
+        params_list.append((
+            sku,
+            rest_id,
+            category,
+            name,
+            price,
+            calories,
+            proteins,
+            fats,
+            carbs,
+            weight,
+            description,
+            composition,
+            allergens,
+            img_url,
+            availability,
+            timetable
+        ))
     async with db_pool.acquire() as conn:
         await conn.executemany(query, params_list)
 
 
 async def main():
-    parsed_menu = {}
-
-    async with async_playwright() as p:
-        logging.info("Запуск браузера Playwright для сбора категорий...")
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
-        page = await context.new_page()
-        categories_dict = await get_categories_and_dishes(page, MENU_URL)
-        await page.close()
-        await browser.close()
-        logging.info("Получены категории и ссылки:")
-        for cat, links in categories_dict.items():
-            logging.info(f"{cat}: {links}")
-
-    for category in categories_dict:
-        parsed_menu[category] = []
+    # Получаем словарь ссылок ресторанов (ключи: restaurant_menu и wine_card/vine_url)
+    db_pool = await asyncpg.create_pool(**DB_CONFIG, min_size=1, max_size=10)
+    restaurant_links = await get_links(db_pool)
+    if not restaurant_links:
+        logging.warning("Словарь ссылок ресторанов пустой.")
+        return
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
     connector = aiohttp.TCPConnector(ssl=False)
-    async with aiohttp.ClientSession(connector=connector) as session:
-        tasks = []
-        for category, urls in categories_dict.items():
-            for url in urls:
-                tasks.append(parse_dish(url, session, category, semaphore))
-        results = await asyncio.gather(*tasks)
-        for dish in results:
-            if dish:
-                parsed_menu[dish["Категория"]].append(dish)
 
-    db_pool = await asyncpg.create_pool(**DB_CONFIG, min_size=1, max_size=10)
-    for category, dishes in parsed_menu.items():
-        await save_dishes_to_db(db_pool, dishes)
+    async with async_playwright() as p:
+        logging.info("Запуск браузера Playwright...")
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
 
-    async with db_pool.acquire() as conn:
-        site_categories = list(parsed_menu.keys())
-        if site_categories:
-            await conn.execute("DELETE FROM menu WHERE category NOT IN (SELECT unnest($1::text[]))",
-                               site_categories)
-        for category, dishes in parsed_menu.items():
-            site_skus = [dish["SKU"] for dish in dishes if dish.get("SKU")]
-            if site_skus:
-                await conn.execute(
-                    "DELETE FROM menu WHERE category = $1 AND NOT (id = ANY($2::integer[]))",
-                    category, site_skus
-                )
-            else:
-                await conn.execute("DELETE FROM menu WHERE category = $1", category)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            # Проходим по каждому ресторану
+            for restaurant_id, links in restaurant_links.items():
+                try:
+                    # Помечаем, что ресторан сейчас парсится
+                    parsing_restaurants.add(restaurant_id)
 
-    logging.info("Синхронизация с сайтом завершена. Все блюда обновлены в базе данных.")
+                    menu_url = links.get("restaurant_menu")
+                    wine_url = links.get("wine_card") or links.get("vine_url", "")
+
+                    restaurant_menu_items = []
+                    restaurant_wine_items = []
+
+                    # Парсинг меню
+                    if menu_url:
+                        logging.info(f"Переходим по меню ресторана {restaurant_id}: {menu_url}")
+                        page = await context.new_page()
+                        categories_dict = await get_categories_and_items(page, menu_url)
+                        await page.close()
+
+                        tasks = []
+                        for category, urls in categories_dict.items():
+                            for url in urls:
+                                tasks.append(
+                                    parse_item(url, session, category, semaphore, restaurant_id)
+                                )
+                        results = await asyncio.gather(*tasks)
+                        for item in results:
+                            if item:
+                                restaurant_menu_items.append(item)
+                    else:
+                        logging.warning(f"У ресторана {restaurant_id} нет ссылки на меню.")
+
+                    # Парсинг винной карты
+                    if wine_url:
+                        logging.info(f"Переходим по винной карте ресторана {restaurant_id}: {wine_url}")
+                        page = await context.new_page()
+                        wine_categories_dict = await get_categories_and_items(page, wine_url)
+                        await page.close()
+
+                        tasks = []
+                        for category, urls in wine_categories_dict.items():
+                            for url in urls:
+                                tasks.append(
+                                    parse_item(url, session, category, semaphore, restaurant_id)
+                                )
+                        results = await asyncio.gather(*tasks)
+                        for item in results:
+                            if item:
+                                restaurant_wine_items.append(item)
+                    else:
+                        logging.warning(f"У ресторана {restaurant_id} нет ссылки на винную карту.")
+
+                    # Сохраняем данные в БД
+                    if restaurant_menu_items:
+                        await save_items_to_db(db_pool, restaurant_menu_items, "menu")
+                        logging.info(f"Синхронизация меню завершена для ресторана {restaurant_id}.")
+                    else:
+                        logging.info(f"Для ресторана {restaurant_id} меню не найдено или пустое.")
+
+                    if restaurant_wine_items:
+                        await save_items_to_db(db_pool, restaurant_wine_items, "vine_card")
+                        logging.info(f"Синхронизация винной карты завершена для ресторана {restaurant_id}.")
+                    else:
+                        logging.info(f"Для ресторана {restaurant_id} винная карта не найдена или пустая.")
+
+                except Exception as e:
+                    logging.exception(f"Ошибка при парсинге ресторана {restaurant_id}: {e}")
+                finally:
+                    # По завершении (даже при ошибках) убираем ресторан из множества парсящихся
+                    if restaurant_id in parsing_restaurants:
+                        parsing_restaurants.remove(restaurant_id)
+
+        await browser.close()
     await db_pool.close()
-
-
-async def periodic_parser(interval=3600):
-    while True:
-        logging.info("Запуск цикла парсинга...")
-        await main()
-        logging.info(f"Ожидание {interval} секунд до следующего запуска...")
-        await asyncio.sleep(interval)
+    logging.info("Синхронизация с сайтом завершена. Все позиции обновлены в базе данных.")
 
 
 if __name__ == "__main__":
