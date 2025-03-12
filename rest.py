@@ -18,6 +18,11 @@ REST_URL = f"{BASE_URL}/restaurants"
 MAX_CONCURRENT_REQUESTS = 20
 FETCH_DELAY_RANGE = (0.01, 0.02)
 
+
+def normalize_phone_number(phone_text: str) -> str:
+    phone_text = re.sub(r"\D", "", phone_text)
+    return phone_text
+
 async def fetch_with_delay(url, session, semaphore):
     async with semaphore:
         await asyncio.sleep(random.uniform(*FETCH_DELAY_RANGE))
@@ -93,6 +98,7 @@ async def fetch_restaurant_data(url, session, semaphore):
         metro = dat['props']['pageProps']['restaurant']['metro']
         work_time = str(dat['props']['pageProps']['restaurant']['working-hours']).replace("[", "").replace("]", "")
         contacts = dat['props']['pageProps']['restaurant']['phone']
+        contacts = normalize_phone_number(contacts)
 
         # Извлечение ссылки на меню ресторана
         restaurant_menu = soup.find("a", string="Смотреть меню")

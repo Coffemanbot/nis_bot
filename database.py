@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, Column, BigInteger, String, Integer, Text,
 from sqlalchemy.orm import sessionmaker, declarative_base
 from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
 
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}?sslmode=disable"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
@@ -11,9 +11,10 @@ Base = declarative_base()
 
 class User(Base):
     __tablename__ = "clients"
-
-    user_id = Column(BigInteger, primary_key=True, index=True)
-    fio = Column(String, nullable=False)
+    user_id = Column(BigInteger, primary_key=True)
+    surname = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    patronymic = Column(String, nullable=False)
     age = Column(Integer, nullable=False)
     phone = Column(String, nullable=False)
 
