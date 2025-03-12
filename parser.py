@@ -151,7 +151,6 @@ async def parse_item(url, session, category, semaphore, restaurant_id):
         try:
             soup = BeautifulSoup(html, "html.parser")
 
-            # Получаем SKU из JSON-LD
             item_id = None
             script_tag = soup.find("script", type="application/ld+json")
             if script_tag:
@@ -315,7 +314,6 @@ async def save_items_to_db(db_pool, items: list, table_name: str):
 
 
 async def main():
-    # Получаем словарь ссылок ресторанов (ключи: restaurant_menu и wine_card/vine_url)
     db_pool = await asyncpg.create_pool(**DB_CONFIG, min_size=1, max_size=10)
     restaurant_links = await get_links(db_pool)
     if not restaurant_links:
@@ -331,10 +329,8 @@ async def main():
         context = await browser.new_context()
 
         async with aiohttp.ClientSession(connector=connector) as session:
-            # Проходим по каждому ресторану
             for restaurant_id, links in restaurant_links.items():
                 try:
-                    # Помечаем, что ресторан сейчас парсится
                     parsing_restaurants.add(restaurant_id)
 
                     menu_url = links.get("restaurant_menu")
@@ -343,7 +339,6 @@ async def main():
                     restaurant_menu_items = []
                     restaurant_wine_items = []
 
-                    # Парсинг меню
                     if menu_url:
                         logging.info(f"Переходим по меню ресторана {restaurant_id}: {menu_url}")
                         page = await context.new_page()
@@ -363,7 +358,6 @@ async def main():
                     else:
                         logging.warning(f"У ресторана {restaurant_id} нет ссылки на меню.")
 
-                    # Парсинг винной карты
                     if wine_url:
                         logging.info(f"Переходим по винной карте ресторана {restaurant_id}: {wine_url}")
                         page = await context.new_page()
@@ -383,7 +377,6 @@ async def main():
                     else:
                         logging.warning(f"У ресторана {restaurant_id} нет ссылки на винную карту.")
 
-                    # Сохраняем данные в БД
                     if restaurant_menu_items:
                         await save_items_to_db(db_pool, restaurant_menu_items, "menu")
                         logging.info(f"Синхронизация меню завершена для ресторана {restaurant_id}.")
@@ -399,7 +392,6 @@ async def main():
                 except Exception as e:
                     logging.exception(f"Ошибка при парсинге ресторана {restaurant_id}: {e}")
                 finally:
-                    # По завершении (даже при ошибках) убираем ресторан из множества парсящихся
                     if restaurant_id in parsing_restaurants:
                         parsing_restaurants.remove(restaurant_id)
 
@@ -407,6 +399,15 @@ async def main():
     await db_pool.close()
     logging.info("Синхронизация с сайтом завершена. Все позиции обновлены в базе данных.")
 
+async def periodic_parser():
+    while True:
+        try:
+            logging.info("Запуск периодического парсера...")
+            await main()
+            logging.info("Периодический парсер завершил работу, ожидаем час до следующего запуска.")
+        except Exception as e:
+            logging.exception(f"Ошибка в периодическом парсере: {e}")
+        await asyncio.sleep(3600)
 
 if __name__ == "__main__":
     try:
