@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import re
 import requests
 import aiofiles
 import aiohttp
@@ -17,6 +18,13 @@ REST_URL = f"{BASE_URL}/restaurants"
 
 MAX_CONCURRENT_REQUESTS = 20
 FETCH_DELAY_RANGE = (0.01, 0.02)
+
+def normalize_phone_number(phone_text: str) -> str:
+    # 1) Заменяем "+7" на "8"
+    phone_text = phone_text.replace("+7", "8")
+    # 2) Удаляем все нецифровые символы
+    phone_text = re.sub(r"\D", "", phone_text)
+    return phone_text
 
 async def fetch_with_delay(url, session, semaphore):
     async with semaphore:
@@ -55,7 +63,6 @@ async def download_image(restaurant_image, session, name, semaphore):
     except Exception as E:
         logging.exception(f"Ошибка при сохранении изображения {restaurant_image}: {E}")
         return restaurant_image
-
 async def fetch_restaurant_data(url, session, semaphore):
     try:
         page_text = await fetch_with_delay(url, session, semaphore)
@@ -83,15 +90,16 @@ async def fetch_restaurant_data(url, session, semaphore):
         vine = soup.find("a", class_='underline', attrs={"rel": "noopener noreferrer"})
         vine_text = vine.get_text(strip=True) if vine else ""
         vine_url = vine['href'] if vine else ""
-
         # Извлечение изображения ресторана
         restaurant_img = soup.find('img', {'itemprop': 'contentUrl'})
         img_url = restaurant_img["src"]
         img_url = await download_image(img_url, session, title, semaphore)
+
         # Извлечение информации о метро, времени работы и контактах
         metro = dat['props']['pageProps']['restaurant']['metro']
         work_time = str(dat['props']['pageProps']['restaurant']['working-hours']).replace("[", "").replace("]", "")
         contacts = dat['props']['pageProps']['restaurant']['phone']
+        contacts = normalize_phone_number(contacts)
 
         # Извлечение ссылки на меню ресторана
         restaurant_menu = soup.find("a", string="Смотреть меню")
@@ -138,7 +146,7 @@ async def save_restaurants_to_db(db_pool, restaurants: list):
         return {}
 
     query = """
-            INSERT INTO restaurants_db 
+            INSERT INTO restaurants 
                 (restaurant_id, name, address, restaurant_image, metro, description, veranda, changing_table, animation, work_time, contacts, vine_card)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (restaurant_id) DO UPDATE 
@@ -175,7 +183,6 @@ async def save_restaurants_to_db(db_pool, restaurants: list):
         work_time = restaurant.get("work_time", "Нет данных о времени работы")
         contacts = restaurant.get("contacts", "Нет контактов")
         vine_card = restaurant.get("vine", "Нет данных о винной карте")
-
         params_list.append((
             restaurant_id,
             name,
@@ -190,6 +197,7 @@ async def save_restaurants_to_db(db_pool, restaurants: list):
             contacts,
             vine_card
         ))
+
         restaurant_menu_link = restaurant.get("restaurant_menu", "Нет меню")
         wine_card_link = restaurant.get("vine_url", "Нет винной карты")
         links_dict[restaurant_id] = {
