@@ -14,25 +14,34 @@ from aiogram.types import (
     InlineKeyboardButton,
     ReplyKeyboardRemove
 )
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandStart
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 from config import BOT_TOKEN, DB_CONFIG
 from parser import periodic_parser
+from cart import router as cart_router, set_db_pool, get_cart_items, add_item_to_cart, clear_cart
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
 db_pool = None
-MAX_CAPTION_LENGTH = 1024
-
-user_selected_restaurant = {}
-restaurants_mapping = {}
 
 async def connect_db():
     global db_pool
     if db_pool is None:
         db_pool = await asyncpg.create_pool(**DB_CONFIG)
+        set_db_pool(db_pool)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+dp.include_router(cart_router)
+MAX_CAPTION_LENGTH = 1024
+
+user_selected_restaurant = {}
+restaurants_mapping = {}
+
+
 
 async def set_main_menu():
     commands = [
@@ -40,10 +49,12 @@ async def set_main_menu():
     ]
     await bot.set_my_commands(commands)
 
+
 async def get_restaurants_list() -> list:
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("SELECT restaurant_id, name FROM restaurants ORDER BY name;")
     return [{"id": r["restaurant_id"], "name": r["name"]} for r in rows]
+
 
 async def get_restaurant_info(restaurant_id: int) -> dict:
     async with db_pool.acquire() as conn:
@@ -53,6 +64,7 @@ async def get_restaurant_info(restaurant_id: int) -> dict:
             WHERE restaurant_id = $1
         """, restaurant_id)
     return dict(row) if row else {}
+
 
 async def get_menu_categories(restaurant_id: int) -> list:
     async with db_pool.acquire() as conn:
@@ -64,6 +76,7 @@ async def get_menu_categories(restaurant_id: int) -> list:
         """, restaurant_id)
     return [r["category"] for r in rows]
 
+
 async def get_menu_items(restaurant_id: int, category: str) -> list:
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
@@ -74,6 +87,7 @@ async def get_menu_items(restaurant_id: int, category: str) -> list:
         """, restaurant_id, category)
     return [dict(r) for r in rows]
 
+
 async def get_menu_item_by_id(item_id: int) -> dict:
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow("""
@@ -82,6 +96,7 @@ async def get_menu_item_by_id(item_id: int) -> dict:
             WHERE id = $1
         """, item_id)
     return dict(row) if row else {}
+
 
 async def get_wine_categories(restaurant_id: int) -> list:
     async with db_pool.acquire() as conn:
@@ -93,6 +108,7 @@ async def get_wine_categories(restaurant_id: int) -> list:
         """, restaurant_id)
     return [r["category"] for r in rows]
 
+
 async def get_wine_items(restaurant_id: int, category: str) -> list:
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
@@ -102,6 +118,7 @@ async def get_wine_items(restaurant_id: int, category: str) -> list:
             ORDER BY name;
         """, restaurant_id, category)
     return [dict(r) for r in rows]
+
 
 async def get_wine_item_by_id(item_id: int) -> dict:
     async with db_pool.acquire() as conn:
@@ -117,6 +134,7 @@ def make_restaurants_reply_keyboard(restaurants: list) -> ReplyKeyboardMarkup:
     kb = [[KeyboardButton(text=r["name"])] for r in restaurants]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
+
 def make_restaurant_actions_inline(restaurant_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📜 Меню ресторана", callback_data=f"menu:{restaurant_id}")],
@@ -124,6 +142,7 @@ def make_restaurant_actions_inline(restaurant_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔙 Назад к выбору ресторана", callback_data="back_to_restaurants")]
     ])
     return kb
+
 
 def make_categories_inline(restaurant_id: int, categories: list, is_wine=False) -> InlineKeyboardMarkup:
     buttons = []
@@ -135,6 +154,7 @@ def make_categories_inline(restaurant_id: int, categories: list, is_wine=False) 
     buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"back_to_restaurant_actions:{restaurant_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def make_items_inline(items: list, is_wine=False) -> InlineKeyboardMarkup:
     buttons = []
     for it in items:
@@ -144,12 +164,14 @@ def make_items_inline(items: list, is_wine=False) -> InlineKeyboardMarkup:
             buttons.append([InlineKeyboardButton(text=it["name"], callback_data=f"dish_wine:{it['id']}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def make_category_reply_keyboard(categories: list) -> ReplyKeyboardMarkup:
     if not categories:
         return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Нет категорий")]], resize_keyboard=True)
     keyboard = [[KeyboardButton(text=cat)] for cat in categories]
     keyboard.append([KeyboardButton(text="Назад")])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, one_time_keyboard=True)
+
 
 def smart_trim(text: str, max_length: int) -> str:
     if len(text) <= max_length:
@@ -165,7 +187,8 @@ def smart_trim(text: str, max_length: int) -> str:
     if result:
         return result.strip()
     else:
-        return text[:max_length-3] + "..."
+        return text[:max_length - 3] + "..."
+
 
 def format_restaurant_info(info: dict) -> str:
     def valid(value):
@@ -194,15 +217,14 @@ def format_restaurant_info(info: dict) -> str:
         parts.append(f"📖 *Описание:* {info['description'].strip()}")
     return "\n\n".join(parts)
 
+
 async def send_restaurant_info(message: Message, restaurant_id: int):
     info = await get_restaurant_info(restaurant_id)
     if not info:
         await message.answer("Ошибка: ресторан не найден.")
         return
-
     rest_text = format_restaurant_info(info)
     rest_text = smart_trim(rest_text, MAX_CAPTION_LENGTH)
-
     kb = make_restaurant_actions_inline(restaurant_id)
     image_path = info.get("image", "")
     if image_path and os.path.exists(image_path) and os.path.isfile(image_path):
@@ -220,6 +242,7 @@ async def send_restaurant_info(message: Message, restaurant_id: int):
             reply_markup=kb
         )
 
+
 async def send_item_info(message: Message, item: dict, is_wine=False):
     icon = "🍽" if not is_wine else "🍷"
     item_text = (
@@ -236,13 +259,26 @@ async def send_item_info(message: Message, item: dict, is_wine=False):
     )
     category = item.get("category", "")
     restaurant_id = item.get("restaurant_id")
+    # Callback для возврата в меню с блюдами выбранной категории:
     if not is_wine:
         back_cb = f"back_to_items_menu:{restaurant_id}:{category}"
     else:
         back_cb = f"back_to_items_wine:{restaurant_id}:{category}"
 
+    price_str = item.get('price', '0')
+    price_parts = price_str.split()  # разделяет строку по пробелам
+    price_int = int(price_parts[0])*100 if price_parts else 0
+    short_item_name = item['name'].replace(" ", "_")[:10]
+
+    add_to_cart_cb = f"add_to_cart:{item['id']}:{restaurant_id}:{is_wine}:{short_item_name}:{price_int}"
+    add_button = InlineKeyboardButton(text="Добавить в корзину", callback_data=add_to_cart_cb)
+    view_cart_button = InlineKeyboardButton(text="🛒 Корзина", callback_data="view_cart")
     back_button = InlineKeyboardButton(text="🔙 Назад", callback_data=back_cb)
-    back_kb = InlineKeyboardMarkup(inline_keyboard=[[back_button]])
+
+    new_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [add_button, view_cart_button],
+        [back_button]
+    ])
 
     image_path = item.get("image", "")
     if image_path and os.path.exists(image_path):
@@ -251,21 +287,15 @@ async def send_item_info(message: Message, item: dict, is_wine=False):
             photo=photo,
             caption=item_text,
             parse_mode="Markdown",
-            reply_markup=back_kb
+            reply_markup=new_kb
         )
     else:
         await message.answer(
             item_text,
             parse_mode="Markdown",
-            reply_markup=back_kb
+            reply_markup=new_kb
         )
 
-def make_category_reply_keyboard(categories: list) -> ReplyKeyboardMarkup:
-    if not categories:
-        return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Нет категорий")]], resize_keyboard=True)
-    keyboard = [[KeyboardButton(text=cat)] for cat in categories]
-    keyboard.append([KeyboardButton(text="Назад")])
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 async def send_menu_categories(message: Message, restaurant_id: int):
     categories = await get_menu_categories(restaurant_id)
@@ -275,6 +305,7 @@ async def send_menu_categories(message: Message, restaurant_id: int):
     inline_kb = make_categories_inline(restaurant_id, categories, is_wine=False)
     await message.answer("Выберите категорию меню:", reply_markup=inline_kb)
 
+
 async def send_wine_categories(message: Message, restaurant_id: int):
     categories = await get_wine_categories(restaurant_id)
     if not categories:
@@ -283,26 +314,131 @@ async def send_wine_categories(message: Message, restaurant_id: int):
     inline_kb = make_categories_inline(restaurant_id, categories, is_wine=True)
     await message.answer("Выберите категорию вин:", reply_markup=inline_kb)
 
-@dp.message(lambda msg: msg.text.strip().lower() == "назад")
-async def handle_back_category(message: Message):
 
-    await message.answer( reply_markup=ReplyKeyboardRemove())
+@dp.message(lambda msg: msg.text and msg.text.strip().lower() == "назад")
+async def handle_back_category(message: Message):
+    await message.answer("", reply_markup=ReplyKeyboardRemove())
+
+
+class RegStates(StatesGroup):
+    fio = State()
+    gender = State()
+    age = State()
+    phone = State()
+
+
+async def user_exists_reg(user_id: int):
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT user_id, name FROM clients WHERE user_id = $1", user_id)
+    return row
+
+
+async def add_user(user_id: int, surname: str, name: str, patronymic: str, gender: str, age: int, phone: str):
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO clients(user_id, surname, name, patronymic, gender, age, phone)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+        """, user_id, surname, name, patronymic, gender, age, phone)
+
 
 @dp.message(Command("start"))
-async def start_command(message: Message):
+async def start_command(message: Message, state: FSMContext):
     await connect_db()
     await set_main_menu()
+    user_id = int(message.from_user.id)
+    reg = await user_exists_reg(user_id)
+    logger.info(f"Проверка регистрации для user_id={user_id}: {reg}")
+    if reg:
+        user_name = reg["name"]
+        restaurants = await get_restaurants_list()
+        if not restaurants:
+            await message.answer("Нет ресторанов в базе.")
+            return
+        global restaurants_mapping
+        restaurants_mapping = {r["name"].strip().lower(): r["id"] for r in restaurants}
+        kb = make_restaurants_reply_keyboard(restaurants)
+        await message.answer(
+            f"☕️ Добро пожаловать, {user_name}! Выберите ресторан в сети Coffemaia:",
+            reply_markup=kb
+        )
+    else:
+        await state.set_state(RegStates.fio)
+        await message.answer(
+            "Добро пожаловать в сеть Coffemaia!\nПожалуйста,сначала зарегистрируйтесь. Введите ваше ФИО:")
 
+
+@dp.message(RegStates.fio)
+async def get_fio(message: Message, state: FSMContext):
+    fio_parts = message.text.strip().split()
+    if len(fio_parts) != 3:
+        await message.answer("Ошибка формата. Введите ФИО в формате: Фамилия Имя Отчество.")
+        return
+    surname, name, patronymic = fio_parts
+    await state.update_data(surname=surname, name=name, patronymic=patronymic)
+    gender_keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Мужской"), KeyboardButton(text="Женский")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    await state.set_state(RegStates.gender)
+    await message.answer("Выберите ваш пол:", reply_markup=gender_keyboard)
+
+
+@dp.message(RegStates.gender)
+async def get_gender(message: Message, state: FSMContext):
+    gender = message.text.strip()
+    if gender.lower() not in ["мужской", "женский"]:
+        await message.answer("Пожалуйста, выберите один из предложенных вариантов: Мужской или Женский.")
+        return
+    await state.update_data(gender=gender)
+    await state.set_state(RegStates.age)
+    await message.answer("Введите ваш возраст:", reply_markup=ReplyKeyboardRemove())
+
+
+@dp.message(RegStates.age)
+async def get_age(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Возраст должен быть числом. Повторите ввод:")
+        return
+    await state.update_data(age=int(message.text))
+    await state.set_state(RegStates.phone)
+    contact_keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Отправить контакт", request_contact=True)]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    await message.answer("Пожалуйста, отправьте ваш контакт или введите номер телефона (например, +79998887766):",
+                         reply_markup=contact_keyboard)
+
+
+@dp.message(RegStates.phone)
+async def get_phone(message: Message, state: FSMContext):
+    if message.contact and message.contact.phone_number:
+        phone = message.contact.phone_number
+    else:
+        phone = message.text.strip()
+    await state.update_data(phone=phone)
+    data = await state.get_data()
+    user_id = int(message.from_user.id)
+    await add_user(user_id, data["surname"], data["name"], data["patronymic"], data["gender"], data["age"],
+                   data["phone"])
+    full_name = f"{data['name']} {data['patronymic']} "
+    nam = f"{data['name']}"
+    await message.answer(f"✅ {full_name}, регистрация успешно завершена!", reply_markup=ReplyKeyboardRemove())
+    await state.clear()
     restaurants = await get_restaurants_list()
     if not restaurants:
         await message.answer("Нет ресторанов в базе.")
         return
-
     global restaurants_mapping
     restaurants_mapping = {r["name"].strip().lower(): r["id"] for r in restaurants}
-
     kb = make_restaurants_reply_keyboard(restaurants)
-    await message.answer("Добро пожаловать! Выберите ресторан:", reply_markup=kb)
+    await message.answer(f"Добро пожаловать, {nam}! Выберите ресторан в сети Coffemaia:", reply_markup=kb)
+
 
 @dp.message()
 async def handle_text_restaurant_selection(message: Message):
@@ -315,12 +451,38 @@ async def handle_text_restaurant_selection(message: Message):
     else:
         await message.answer("Неизвестный ресторан. Попробуйте снова или /start.")
 
+
 @dp.callback_query(lambda c: c.data == "back_to_restaurants")
 async def back_to_restaurants_callback(callback: types.CallbackQuery):
     await callback.message.delete()
     restaurants = await get_restaurants_list()
     kb = make_restaurants_reply_keyboard(restaurants)
     await bot.send_message(callback.from_user.id, "Выберите ресторан:", reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "view_cart")
+async def view_cart_callback(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    # Получаем товары корзины (функция get_cart_items уже определена в cart.py)
+    items = await get_cart_items(user_id)
+    if not items:
+        await callback.message.answer("Корзина пуста.")
+        await callback.answer()
+        return
+
+    total = sum(i['price'] * i['count'] for i in items)
+    cart_text = "Ваш заказ:\n\n"
+    for item in items:
+        item_total = item['price'] * item['count']
+        cart_text += f"{item['item_name']} x{item['count']} - {item_total / 100:.2f} руб.\n"
+    cart_text += f"\nИтого: {total / 100:.2f} руб."
+
+    kb = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Оплатить заказ", callback_data="checkout")],
+        [types.InlineKeyboardButton(text="Очистить корзину", callback_data="clear_cart")]
+    ])
+
+    await callback.message.answer(cart_text, reply_markup=kb)
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("menu:"))
@@ -330,12 +492,14 @@ async def menu_callback(callback: types.CallbackQuery):
     await send_menu_categories(callback.message, restaurant_id)
     await callback.answer()
 
+
 @dp.callback_query(lambda c: c.data.startswith("wine:"))
 async def wine_callback(callback: types.CallbackQuery):
     restaurant_id = int(callback.data.split(":")[1])
     user_selected_restaurant[callback.from_user.id] = restaurant_id
     await send_wine_categories(callback.message, restaurant_id)
     await callback.answer()
+
 
 @dp.callback_query(lambda c: c.data.startswith("cat_menu:"))
 async def cat_menu_callback(callback: types.CallbackQuery):
@@ -356,6 +520,7 @@ async def cat_menu_callback(callback: types.CallbackQuery):
     )
     await callback.answer()
 
+
 @dp.callback_query(lambda c: c.data.startswith("cat_wine:"))
 async def cat_wine_callback(callback: types.CallbackQuery):
     _, rest_id_str, category = callback.data.split(":", 2)
@@ -375,6 +540,7 @@ async def cat_wine_callback(callback: types.CallbackQuery):
     )
     await callback.answer()
 
+
 @dp.callback_query(lambda c: c.data.startswith("dish_menu:"))
 async def dish_menu_callback(callback: types.CallbackQuery):
     _, item_id_str = callback.data.split(":", 1)
@@ -385,6 +551,7 @@ async def dish_menu_callback(callback: types.CallbackQuery):
     else:
         await callback.message.answer("Блюдо не найдено.")
     await callback.answer()
+
 
 @dp.callback_query(lambda c: c.data.startswith("dish_wine:"))
 async def dish_wine_callback(callback: types.CallbackQuery):
@@ -400,7 +567,6 @@ async def dish_wine_callback(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data.startswith("back_to_menu_categories:"))
 async def back_to_menu_categories_callback(callback: types.CallbackQuery):
-    # Просто удаляем сообщение и завершаем обработку
     await callback.message.delete()
     await callback.answer()
 
@@ -428,6 +594,7 @@ async def back_to_items_wine_callback(callback: types.CallbackQuery):
     await callback.message.delete()
     await callback.answer()
 
+
 async def start_bot():
     await connect_db()
     await set_main_menu()
@@ -436,9 +603,13 @@ async def start_bot():
     finally:
         await db_pool.close()
 
+
 async def main():
+    await connect_db()
+    await set_main_menu()
     asyncio.create_task(periodic_parser())
     await start_bot()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
