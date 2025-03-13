@@ -4,7 +4,7 @@ import logging
 from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.types import LabeledPrice, PreCheckoutQuery
-from config import DB_CONFIG, PAYMENT_PROVIDER_TOKEN
+from config1 import DB_CONFIG, PAYMENT_PROVIDER_TOKEN
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)

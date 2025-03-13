@@ -18,7 +18,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from config import BOT_TOKEN, DB_CONFIG
+from config1 import BOT_TOKEN, DB_CONFIG
 from parser import periodic_parser
 from cart import router as cart_router, set_db_pool, get_cart_items, add_item_to_cart, clear_cart
 
