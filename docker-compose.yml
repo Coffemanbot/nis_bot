@@ -2,7 +2,6 @@ services:
   my_app:
     image: kostyaokriashvili/projectnis:latest
     container_name: project_app
-#    build: .
     ports:
       - "8000:8000"
     environment:
@@ -15,6 +14,6 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       BASE_URL: ${BASE_URL}
-    volumes:
-      - .:/app
+#    volumes:
+#      - .:/app
 
