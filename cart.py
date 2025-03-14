@@ -98,7 +98,6 @@ async def view_cart_callback(callback: types.CallbackQuery):
         [types.InlineKeyboardButton(text="Оплатить заказ", callback_data="checkout")],
         [types.InlineKeyboardButton(text="Очистить корзину", callback_data="clear_cart")]
     ])
-
     await callback.message.answer(cart_text, reply_markup=kb)
     await callback.answer()
 
@@ -145,3 +144,58 @@ async def get_cart_items(user_id: int):
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("SELECT item_name, price, count FROM cart WHERE user_id=$1", user_id)
         return [{"item_name": r["item_name"], "price": r["price"], "count": r["count"]} for r in rows]
+
+
+async def save_order_from_cart(user_id: int):
+    # Получаем товары корзины с нужными полями (включая id, is_wine и restaurant_id)
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, item_name, price, count, is_wine, restaurant_id FROM cart WHERE user_id=$1",
+            user_id
+        )
+    items = [dict(r) for r in rows]
+    if not items:
+        return None  # Корзина пуста
+
+    # Выбираем минимальное значение id из корзины для использования в качестве order_id
+    order_id_candidate = min(item['id'] for item in items)
+
+    # Предполагаем, что все товары принадлежат одному ресторану
+    restaurant_id = items[0]['restaurant_id']
+
+    # Разбиваем товары на категории: меню и винная карта
+    menu_items = []
+    wine_items = []
+    total_count = 0
+    for item in items:
+        total_count += item['count']
+        if item['is_wine']:
+            wine_items.append(f"{item['item_name']} (x{item['count']})")
+        else:
+            menu_items.append(f"{item['item_name']} (x{item['count']})")
+
+    menu_text = ", ".join(menu_items) if menu_items else ""
+    wine_text = ", ".join(wine_items) if wine_items else ""
+
+    # Вставляем заказ в таблицу orders, явно задавая order_id равным order_id_candidate
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+                INSERT INTO orders (order_id, user_id, restaurant_id, menu_items, wine_items, count)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            """, order_id_candidate, user_id, restaurant_id, menu_text, wine_text, total_count)
+
+    # После сохранения заказа очищаем корзину
+    await clear_cart(user_id)
+
+    return order_id_candidate
+
+
+async def get_order_history(user_id: int) -> list:
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+                SELECT order_id, payment_date, menu_items, wine_items, count
+                FROM orders
+                WHERE user_id = $1
+                ORDER BY payment_date DESC;
+            """, user_id)
+    return rows

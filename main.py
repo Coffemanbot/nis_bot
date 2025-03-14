@@ -21,7 +21,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from config1 import BOT_TOKEN, DB_CONFIG
 from parser import periodic_parser
-from cart import router as cart_router, set_db_pool, get_cart_items, add_item_to_cart, clear_cart
+from cart import router as cart_router, set_db_pool, get_cart_items, add_item_to_cart, clear_cart,save_order_from_cart, get_order_history
 from db_queries import get_menu_item_by_id, get_wine_item_by_id
 
 db_pool = None
@@ -115,8 +115,6 @@ async def get_wine_items(restaurant_id: int, category_id: int) -> list:
 def make_restaurants_reply_keyboard(restaurants: list) -> ReplyKeyboardMarkup:
     kb = [[KeyboardButton(text=r["name"])] for r in restaurants]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
-
-
 def make_restaurant_actions_inline(restaurant_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📜 Меню ресторана", callback_data=f"menu:{restaurant_id}")],
@@ -180,13 +178,19 @@ def smart_trim(text: str, max_length: int) -> str:
     else:
         return text[:max_length - 3] + "..."
 
+
 @dp.message(F.successful_payment)
 async def successful_payment_handler(message: Message):
     logger.info(f"Получен успешный платеж: {message.successful_payment}")
+
+    order_id = await save_order_from_cart(message.from_user.id)
+
     await clear_cart(message.from_user.id)
+
     await message.answer(
         f"Платеж на сумму {message.successful_payment.total_amount // 100} "
-        f"{message.successful_payment.currency} прошёл успешно!\nСпасибо за покупку!"
+        f"{message.successful_payment.currency} прошёл успешно!\n"
+        f"Ваш заказ оформлен под номером {order_id}. Спасибо за покупку!"
     )
 
 
@@ -290,7 +294,6 @@ async def send_item_info(message: Message, item: dict, is_wine=False):
             parse_mode="Markdown",
             reply_markup=new_kb
         )
-
 async def send_menu_categories(message: Message, restaurant_id: int):
     categories = await get_menu_categories(restaurant_id)
     if not categories:
@@ -335,6 +338,13 @@ async def add_user(user_id: int, surname: str, name: str, patronymic: str, gende
         """, user_id, surname, name, patronymic, gender, age, phone)
 
 
+def make_bottom_order_history_button() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="История заказов", callback_data="order_history")]
+    ])
+    return kb
+
+
 @dp.message(Command("start"))
 async def start_command(message: Message, state: FSMContext):
     await connect_db()
@@ -344,22 +354,49 @@ async def start_command(message: Message, state: FSMContext):
     logger.info(f"Проверка регистрации для user_id={user_id}: {reg}")
     if reg:
         user_name = reg["name"]
-        restaurants = await get_restaurants_list()
-        if not restaurants:
-            await message.answer("Нет ресторанов в базе.")
-            return
-        global restaurants_mapping
-        restaurants_mapping = {r["name"].strip().lower(): r["id"] for r in restaurants}
-        kb = make_restaurants_reply_keyboard(restaurants)
+        main_menu_kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="Выбор ресторана")],
+                [KeyboardButton(text="История заказов")]
+            ],
+            resize_keyboard=True
+        )
         await message.answer(
-            f"☕️ Добро пожаловать, {user_name}! Выберите ресторан в сети Coffemaia:",
-            reply_markup=kb
+            f"☕️ Добро пожаловать, {user_name}!",
+            reply_markup=main_menu_kb
         )
     else:
         await state.set_state(RegStates.fio)
         await message.answer(
-            "Добро пожаловать в сеть Coffemaia!\nПожалуйста,сначала зарегистрируйтесь. Введите ваше ФИО:")
+            "Добро пожаловать в сеть Coffemaia!\nПожалуйста, сначала зарегистрируйтесь. Введите ваше ФИО:"
+        )
 
+@dp.message(lambda message: message.text.strip().lower() == "выбор ресторана")
+async def choose_restaurant(message: Message):
+    restaurants = await get_restaurants_list()
+    if not restaurants:
+        await message.answer("Нет ресторанов в базе.")
+        return
+    global restaurants_mapping
+    restaurants_mapping = {r["name"].strip().lower(): r["id"] for r in restaurants}
+    restaurants_kb = make_restaurants_reply_keyboard(restaurants)
+    await message.answer("Выберите ресторан:", reply_markup=restaurants_kb)
+@dp.message(lambda message: message.text.strip().lower() == "история заказов")
+async def order_history_handler(message: Message):
+    orders = await get_order_history(message.from_user.id)
+    if not orders:
+        await message.answer("У вас пока нет истории заказов.")
+    else:
+        text = "История ваших заказов:\n\n"
+        for order in orders:
+            order_date = order['payment_date'].strftime('%d.%m.%Y %H:%M')
+            text += (
+                f"Заказ №{order['order_id']} от {order_date}:\n"
+                f"Меню: {order['menu_items'] or 'нет'}\n"
+                f"Винная карта: {order['wine_items'] or 'нет'}\n"
+                f"Количество: {order['count']}\n\n"
+            )
+        await message.answer(text)
 
 @dp.message(RegStates.fio)
 async def get_fio(message: Message, state: FSMContext):
@@ -430,8 +467,6 @@ async def get_phone(message: Message, state: FSMContext):
     restaurants_mapping = {r["name"].strip().lower(): r["id"] for r in restaurants}
     kb = make_restaurants_reply_keyboard(restaurants)
     await message.answer(f"Добро пожаловать, {nam}! Выберите ресторан в сети Coffemaia:", reply_markup=kb)
-
-
 @dp.message()
 async def handle_text_restaurant_selection(message: Message):
     if not message.text:
@@ -530,8 +565,6 @@ async def dish_menu_callback(callback: types.CallbackQuery):
     else:
         await callback.message.answer("Блюдо не найдено.")
     await callback.answer()
-
-
 @dp.callback_query(lambda c: c.data.startswith("dish_wine:"))
 async def dish_wine_callback(callback: types.CallbackQuery):
     _, item_id_str = callback.data.split(":", 1)
