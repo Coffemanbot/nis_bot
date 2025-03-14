@@ -23,6 +23,27 @@ jobs:
           username: ${{secrets.DOCKERHUB_USER}}
           password: ${{secrets.DOCKERHUB_PASS}}
 
+      - name: Создание файла .env на сервере
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          passphrase: ${{ secrets.SSH_PASS }}
+          port: 22
+          request_pty: true
+          script: |
+            cat <<EOF > /home/username/.env
+            DB_NAME=${{ secrets.DB_NAME }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_PASS=${{ secrets.DB_PASS }}
+            BASE_URL=${{ secrets.BASE_URL }}
+            BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+            PAYMENT_PROVIDER_TOKEN=${{ secrets.PAYMENT_PROVIDER_TOKEN }}
+            DB_HOST=${{ secrets.DB_HOST }}
+            DB_PORT=${{ secrets.DB_PORT }}
+            EOF
+
       - name: Сборка и пуш изображения Docker'а
         uses: docker/build-push-action@v3
         with:
