@@ -518,8 +518,17 @@ async def menu_callback(callback: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data.startswith("wine:"))
 async def wine_callback(callback: types.CallbackQuery):
     restaurant_id = int(callback.data.split(":")[1])
-    await send_wine_categories(callback.message, restaurant_id)
+    user_id = callback.from_user.id
+    async with db_pool.acquire() as conn:
+        user_info = await conn.fetchrow("SELECT age FROM clients WHERE user_id = $1", user_id)
+    # Если возраст меньше 18, отправляем сообщение с отказом
+    if user_info and user_info["age"] < 18:
+        await callback.message.answer("Вам меньше 18 лет, просмотр винной карты недоступен!😠")
+        await send_restaurant_info(callback.message, restaurant_id)
+    else:
+        await send_wine_categories(callback.message, restaurant_id)
     await callback.answer()
+
 
 
 @dp.callback_query(lambda c: c.data.startswith("cat_menu:"))

@@ -24,6 +24,14 @@ def set_db_pool(pool):
     db_pool = pool
 
 async def add_item_to_cart(user_id: int, restaurant_id: int, item_id: int, is_wine: bool = False):
+    # Проверяем, если в корзине уже есть товары, то их restaurant_id должен совпадать с новым
+    async with db_pool.acquire() as conn:
+        existing_restaurant = await conn.fetchrow(
+            "SELECT restaurant_id FROM cart WHERE user_id=$1 LIMIT 1", user_id
+        )
+        if existing_restaurant and existing_restaurant["restaurant_id"] != restaurant_id:
+            raise Exception("Нельзя добавлять блюда из разных ресторанов🥲")
+
     if is_wine:
         item = await get_wine_item_by_id(db_pool, item_id)
     else:
@@ -70,7 +78,8 @@ async def add_to_cart_callback(callback: types.CallbackQuery):
         await callback.answer("Товар добавлен в корзину!")
     except Exception as e:
         logger.exception(f"Ошибка в add_to_cart_callback: {e}")
-        await callback.answer("Ошибка при добавлении товара в корзину.", show_alert=True)
+        await callback.message.answer(str(e))
+        await callback.answer()
 
 async def clear_cart(user_id: int):
     async with db_pool.acquire() as conn:
