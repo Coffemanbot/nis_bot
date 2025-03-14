@@ -200,30 +200,32 @@ def smart_trim(text: str, max_length: int) -> str:
         return text[:max_length - 3] + "..."
 
 def format_restaurant_info(info: dict) -> str:
-    def valid(value):
-        return value and value.strip() and value.strip().lower() not in ["нет", "нет описания"]
     parts = []
-    if valid(info.get("name")):
+    # Выводим все поля полностью
+    if info.get("name"):
         parts.append(f"*{info['name'].strip()}*")
-    if valid(info.get("address")):
+    if info.get("address"):
         parts.append(f"📍 *Адрес:* {info['address'].strip()}")
-    if valid(info.get("metro")):
+    if info.get("metro"):
         parts.append(f"🚇 *Метро:* {info['metro'].strip()}")
-    if valid(info.get("work_time")):
+    if info.get("work_time"):
         parts.append(f"⏰ *Время работы:* {info['work_time'].strip()}")
-    if valid(info.get("contacts")):
-        parts.append(f"☎ *Контакты:* {info['contacts'].strip()}")
-    if valid(info.get("veranda")):
+    if info.get("contacts"):
+        parts.append(f"☎ *Контакты:* {str(info['contacts']).strip()}")
+    if info.get("veranda"):
         parts.append(f"🌞 *Веранда:* {info['veranda'].strip()}")
-    if valid(info.get("changing_table")):
+    if info.get("changing_table"):
         parts.append(f"👶 *Пеленальный столик:* {info['changing_table'].strip()}")
-    if valid(info.get("animation")):
+    if info.get("animation"):
         parts.append(f"🎉 *Анимация:* {info['animation'].strip()}")
-    if valid(info.get("vine_card")):
+    if info.get("vine_card"):
         parts.append(f"🍷 *Винная карта:* {info['vine_card'].strip()}")
-    if valid(info.get("description")):
-        parts.append(f"📖 *Описание:* {info['description'].strip()}")
+    # Применяем умное обрезание только для описания
+    if info.get("description"):
+        trimmed_desc = smart_trim(info["description"].strip(), MAX_CAPTION_LENGTH)
+        parts.append(f"📖 *Описание:* {trimmed_desc}")
     return "\n\n".join(parts)
+
 
 async def send_restaurant_info(message: Message, restaurant_id: int):
     info = await get_restaurant_info(restaurant_id)
@@ -231,12 +233,10 @@ async def send_restaurant_info(message: Message, restaurant_id: int):
         await message.answer("Ошибка: ресторан не найден.")
         return
     rest_text = format_restaurant_info(info)
-    rest_text = smart_trim(rest_text, MAX_CAPTION_LENGTH)
     kb = make_restaurant_actions_inline(restaurant_id)
     image_path = info.get("image", "")
 
     if image_path and image_path.startswith("http"):
-        # Отправляем фото + caption
         await message.answer_photo(
             photo=image_path,
             caption=rest_text,
@@ -244,7 +244,6 @@ async def send_restaurant_info(message: Message, restaurant_id: int):
             reply_markup=kb
         )
     else:
-        # Просто текст
         await message.answer(rest_text, parse_mode="Markdown", reply_markup=kb)
 
 async def send_item_info(message: Message, item: dict, is_wine=False):
