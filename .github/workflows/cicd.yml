@@ -33,7 +33,7 @@ jobs:
           port: 22
           request_pty: true
           script: |
-            cat <<EOF > /home/username/.env
+            cat <<EOF > /home/kostas/.env
             DB_NAME=${{ secrets.DB_NAME }}
             DB_USER=${{ secrets.DB_USER }}
             DB_PASS=${{ secrets.DB_PASS }}
