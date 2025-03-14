@@ -1,8 +1,8 @@
 services:
   my_app:
-#    image: kostyaokriashvili/projectnis:latest
+    image: kostyaokriashvili/projectnis:latest
     container_name: project_app
-    build: .
+#    build: .
     ports:
       - "8000:8000"
     environment:
