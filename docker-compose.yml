@@ -1,0 +1,19 @@
+services:
+  my_app:
+    build: .
+    container_name: project_app
+    ports:
+      - "8000:8000"
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      PAYMENT_PROVIDER_TOKEN: ${PAYMENT_PROVIDER_TOKEN}
+
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      BASE_URL: ${BASE_URL}
+    volumes:
+      - .:/app
+
