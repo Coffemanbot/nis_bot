@@ -41,5 +41,5 @@ jobs:
           port: 22
           script: |
             echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-            docker compose pull
+            docker compose -f /Users/konstantinokriashvili/PycharmProjects/nis_bot/docker-compose.yml  pull
             docker compose up -d --build
