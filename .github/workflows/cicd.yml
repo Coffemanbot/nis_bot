@@ -36,7 +36,7 @@ jobs:
         with:
           host: ${{secrets.SSH_HOST}}
           username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
+          password: ${{ secrets.SSH_KEY }}
           port: 22
           script: |
             cd /path/to/project
