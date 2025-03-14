@@ -36,6 +36,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
+          passphrase: ${{secrets.SSH_PASS}}
           port: 22
           source: "docker-compose.yml"
           target: "/home/username/project/docker-compose.yml"
