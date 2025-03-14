@@ -299,7 +299,7 @@ async def send_wine_categories(message: Message, restaurant_id: int):
     inline_kb = make_categories_inline(restaurant_id, categories, is_wine=True)
     await message.answer("Выберите категорию вин:", reply_markup=inline_kb)
 
-@dp.message.register(cart.success_payment_handler, F.successful_payment)
+@dp.message.register(cart.successful_payment_handler, F.successful_payment)
 
 
 @dp.message(lambda msg: msg.text and msg.text.strip().lower() == "назад")

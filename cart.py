@@ -120,15 +120,3 @@ async def successful_payment_handler(message: types.Message):
     await clear_cart(message.from_user.id)
     await message.answer("Спасибо за оплату! Ваш заказ принят.")
 
-async def main():
-    await create_db_pool()
-    logger.info("Модуль корзины запущен. Ожидаем команды...")
-    await asyncio.sleep(3600)
-    await db_pool.close()
-    logger.info("DB Pool закрыт.")
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        logger.exception(f"Ошибка: {e}")
