@@ -5,7 +5,7 @@ from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram.types import LabeledPrice, PreCheckoutQuery, ContentType, SuccessfulPayment
-from config1 import DB_CONFIG, PAYMENT_PROVIDER_TOKEN
+from config import DB_CONFIG, PAYMENT_PROVIDER_TOKEN
 from db_queries import get_menu_item_by_id, get_wine_item_by_id
 import re
 
@@ -81,16 +81,19 @@ async def view_cart_callback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     items = await get_cart_items(user_id)
     if not items:
-        await callback.message.answer("Корзина пуста.")
+        await callback.message.answer("🛒 Ваша корзина пуста.\nДобавьте товары, чтобы оформить заказ😊")
         await callback.answer()
         return
 
     total = sum(i['price'] * i['count'] for i in items)
-    cart_text = "Ваш заказ:\n\n"
+    cart_text = "🛒 Ваш заказ:\n\n"
     for item in items:
         item_total = item['price'] * item['count']
-        cart_text += f"{item['item_name']}, кол-во: {item['count']} - {item_total / 100:.2f} руб.\n"
-    cart_text += f"\nИтого: {total / 100:.2f} руб."
+        cart_text += (
+            f"{item['item_name']}\n"
+            f"   📦 Кол-во: {item['count']} шт.  |  💵 Сумма: {item_total / 100:.2f} руб.\n"
+        )
+    cart_text += f"\n💰 Итого: {total / 100:.2f} руб."
 
     kb = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="Оплатить заказ", callback_data="checkout")],

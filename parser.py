@@ -9,7 +9,7 @@ import json
 import aiofiles
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
-from config1 import DB_CONFIG, BASE_URL
+from config import DB_CONFIG, BASE_URL
 from rest import get_links
 
 MAX_CONCURRENT_REQUESTS = 20
