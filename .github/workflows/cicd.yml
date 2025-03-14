@@ -40,8 +40,6 @@ jobs:
           passphrase: ${{secrets.SSH_PASS}}
           port: 22
           script: |
-            cd /path/to/project
-            git pull origin main || true
-            docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_PASSWORD }}
-            docker compose pull
+            echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+            docker compose -f /Users/konstantinokriashvili/PycharmProjects/nis_bot/docker-compose.yml  pull
             docker compose up -d --build
