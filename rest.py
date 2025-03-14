@@ -31,43 +31,11 @@ async def fetch_with_delay(url, session, semaphore):
             response.raise_for_status()
             return await response.text()
 
-async def download_image(restaurant_image, session, name, semaphore):
-    safe_restaurant_name = "".join(c for c in name if c.isalnum() or c in " _-").strip()
-    file_extension = os.path.splitext(restaurant_image)[1].lower() if '.' in restaurant_image else '.jpg'
-    dir_path = os.path.join("restaurant_images")
-    os.makedirs(dir_path, exist_ok=True)
-    output_path = os.path.join(dir_path, f"{safe_restaurant_name}{file_extension}")
-
-    if os.path.exists(output_path):
-        logging.info(f"Изображение уже существует: {output_path}")
-        return output_path
-
-    try:
-        async with semaphore:
-            await asyncio.sleep(random.uniform(*FETCH_DELAY_RANGE))
-            async with session.get(restaurant_image, timeout=10) as response:
-                if response.status != 200:
-                    logging.error(f"Не удалось скачать изображение {restaurant_image} (статус {response.status})")
-                    return restaurant_image
-                img_bytes = await response.read()
-    except Exception as E:
-        logging.exception(f"Exception при скачивании изображения {restaurant_image}: {E}")
-        return restaurant_image
-
-    try:
-        async with aiofiles.open(output_path, "wb") as f:
-            await f.write(img_bytes)
-        return output_path
-    except Exception as E:
-        logging.exception(f"Ошибка при сохранении изображения {restaurant_image}: {E}")
-        return restaurant_image
-
 async def fetch_restaurant_data(url, session, semaphore):
     try:
         page_text = await fetch_with_delay(url, session, semaphore)
         soup = BeautifulSoup(page_text, "html.parser")
 
-        # Извлечение JSON-данных из тега <script id="__NEXT_DATA__">
         script_tag = soup.find('script', id='__NEXT_DATA__')
         json_data = script_tag.string
         dat = json.loads(json_data)
@@ -76,32 +44,25 @@ async def fetch_restaurant_data(url, session, semaphore):
         descriptions = soup.find("div", class_="styles__AboutContent-sc-1q087s8-26 kcNVuQ")
         description_text = descriptions.get_text(strip=True) if descriptions else "Нет описания"
 
-        # Извлечение дополнительной информации
         extra_info = soup.find_all("div", class_="styles__ExtraInfoItemText-sc-1q087s8-23 KvPwL")
         veranda = extra_info[0].get_text(strip=True) if len(extra_info) > 0 else "Без летней веранды"
         changing_table = dat['props']['pageProps']['restaurant']['changing-tables']
         animation = extra_info[2].get_text(strip=True) if len(extra_info) > 2 else "Без детской анимации"
 
-        # Извлечение адреса
         address = dat['props']['pageProps']['restaurant']['address']
 
-        # Извлечение информации о винной карте
         vine = soup.find("a", class_='underline', attrs={"rel": "noopener noreferrer"})
         vine_text = vine.get_text(strip=True) if vine else ""
         vine_url = vine['href'] if vine else ""
 
-        # Извлечение изображения ресторана
         restaurant_img = soup.find('img', {'itemprop': 'contentUrl'})
         img_url = restaurant_img["src"]
-        img_url = await download_image(img_url, session, title, semaphore)
 
-        # Извлечение информации о метро, времени работы и контактах
         metro = dat['props']['pageProps']['restaurant']['metro']
         work_time = str(dat['props']['pageProps']['restaurant']['working-hours']).replace("[", "").replace("]", "")
         contacts = dat['props']['pageProps']['restaurant']['phone']
         contacts = normalize_phone_number(contacts)
 
-        # Извлечение ссылки на меню ресторана
         restaurant_menu = soup.find("a", string="Смотреть меню")
         menu_url = restaurant_menu['href'] if restaurant_menu else "Нет меню"
 

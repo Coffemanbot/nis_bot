@@ -112,38 +112,6 @@ async def fetch(url, session, retries=3, delay_range=FETCH_DELAY_RANGE):
         logging.info(f"Повтор запроса {url} (попытка {attempt + 1}/{retries})")
     return None
 
-
-async def download_image(img_url, session, category, dish_name):
-    if not img_url or img_url == "Нет фото":
-        return "Нет фото"
-    safe_dish_name = "".join(c for c in dish_name if c.isalnum() or c in " _-").strip()
-    file_extension = os.path.splitext(img_url)[1].lower() if '.' in img_url else '.jpg'
-    dir_path = os.path.join("images", category)
-    os.makedirs(dir_path, exist_ok=True)
-    output_path = os.path.join(dir_path, f"{safe_dish_name}{file_extension}")
-
-    if os.path.exists(output_path):
-        return output_path
-
-    try:
-        async with session.get(img_url, timeout=10) as response:
-            if response.status != 200:
-                logging.error(f"Не удалось скачать изображение {img_url} (статус {response.status})")
-                return img_url
-            img_bytes = await response.read()
-    except Exception as E:
-        logging.exception(f"Exception при скачивании изображения {img_url}: {E}")
-        return img_url
-
-    try:
-        async with aiofiles.open(output_path, "wb") as f:
-            await f.write(img_bytes)
-        return output_path
-    except Exception as E:
-        logging.exception(f"Ошибка при сохранении изображения {img_url}: {E}")
-        return img_url
-
-
 def get_restaurant_id_for_item(item_url: str, restaurant_links: dict):
     for rest_id, links in restaurant_links.items():
         menu_url = links.get("restaurant_menu", "")
@@ -225,8 +193,7 @@ async def parse_item(url, session, category, cat_id, semaphore, restaurant_id):
                 elif not img_url.startswith("http"):
                     img_url = BASE_URL + img_url
 
-            processed_img = await download_image(img_url, session, "items", name)
-
+            processed_img = img_url
             time_label = soup.find("div", class_="timeLabel")
             timetable = time_label.get_text(strip=True) if time_label else ""
 

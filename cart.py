@@ -33,7 +33,6 @@ async def add_item_to_cart(user_id: int, restaurant_id: int, item_id: int, is_wi
         raise Exception("Товар не найден")
 
     item_name = item["name"]
-    # Извлекаем числовую часть из строки цены:
     price_str = item.get("price", "0")
     price_digits = re.sub(r"[^\d]", "", price_str)
     price = int(price_digits) * 100 if price_digits else 0
@@ -80,7 +79,6 @@ async def clear_cart(user_id: int):
 @router.callback_query(lambda c: c.data == "view_cart")
 async def view_cart_callback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-    # Получаем товары корзины (функция get_cart_items уже определена в cart.py)
     items = await get_cart_items(user_id)
     if not items:
         await callback.message.answer("Корзина пуста.")
@@ -135,7 +133,6 @@ async def checkout_callback(callback: types.CallbackQuery):
 
 @router.pre_checkout_query()
 async def process_pre_checkout(query: PreCheckoutQuery):
-    # Здесь можно добавить проверки, если нужно (например, доступность товара)
     await query.answer(ok=True)
     logger.info(f"Pre checkout query обработан: {query.id}")
 
@@ -155,15 +152,12 @@ async def save_order_from_cart(user_id: int):
         )
     items = [dict(r) for r in rows]
     if not items:
-        return None  # Корзина пуста
+        return None
 
-    # Выбираем минимальное значение id из корзины для использования в качестве order_id
     order_id_candidate = min(item['id'] for item in items)
 
-    # Предполагаем, что все товары принадлежат одному ресторану
     restaurant_id = items[0]['restaurant_id']
 
-    # Разбиваем товары на категории: меню и винная карта
     menu_items = []
     wine_items = []
     total_count = 0
@@ -177,14 +171,12 @@ async def save_order_from_cart(user_id: int):
     menu_text = ", ".join(menu_items) if menu_items else ""
     wine_text = ", ".join(wine_items) if wine_items else ""
 
-    # Вставляем заказ в таблицу orders, явно задавая order_id равным order_id_candidate
     async with db_pool.acquire() as conn:
         await conn.execute("""
                 INSERT INTO orders (order_id, user_id, restaurant_id, menu_items, wine_items, count)
                 VALUES ($1, $2, $3, $4, $5, $6)
             """, order_id_candidate, user_id, restaurant_id, menu_text, wine_text, total_count)
 
-    # После сохранения заказа очищаем корзину
     await clear_cart(user_id)
 
     return order_id_candidate

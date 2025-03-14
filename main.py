@@ -231,20 +231,19 @@ async def send_restaurant_info(message: Message, restaurant_id: int):
     rest_text = smart_trim(rest_text, MAX_CAPTION_LENGTH)
     kb = make_restaurant_actions_inline(restaurant_id)
     image_path = info.get("image", "")
-    if image_path and os.path.exists(image_path) and os.path.isfile(image_path):
-        photo = FSInputFile(image_path)
-        await message.answer_photo(
-            photo=photo,
-            caption=rest_text,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
+
+    if image_path:
+        if image_path.startswith("http"):
+            await message.answer_photo(
+                photo=image_path,
+                caption=rest_text,
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+        else:
+            await message.answer(rest_text, parse_mode="Markdown", reply_markup=kb)
     else:
-        await message.answer(
-            rest_text,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
+        await message.answer(rest_text, parse_mode="Markdown", reply_markup=kb)
 
 
 async def send_item_info(message: Message, item: dict, is_wine=False):
@@ -280,14 +279,20 @@ async def send_item_info(message: Message, item: dict, is_wine=False):
     ])
 
     image_path = item.get("image", "")
-    if image_path and os.path.exists(image_path):
-        photo = FSInputFile(image_path)
-        await message.answer_photo(
-            photo=photo,
-            caption=item_text,
-            parse_mode="Markdown",
-            reply_markup=new_kb
-        )
+    if image_path:
+        if image_path.startswith("http"):
+            await message.answer_photo(
+                photo=image_path,
+                caption=item_text,
+                parse_mode="Markdown",
+                reply_markup=new_kb
+            )
+        else:
+            await message.answer(
+                item_text,
+                parse_mode="Markdown",
+                reply_markup=new_kb
+            )
     else:
         await message.answer(
             item_text,
