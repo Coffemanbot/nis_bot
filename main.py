@@ -23,7 +23,7 @@ from aiogram.fsm.state import StatesGroup, State
 from parser import periodic_parser
 from cart import router as cart_router, set_db_pool, get_cart_items, add_item_to_cart, clear_cart, save_order_from_cart, get_order_history
 from db_queries import get_menu_item_by_id, get_wine_item_by_id
-from config import BOT_TOKEN, DB_CONFIG
+from config1 import BOT_TOKEN, DB_CONFIG
 
 db_pool = None
 
@@ -168,7 +168,6 @@ def make_categories_inline(restaurant_id: int, categories: list, is_wine=False) 
                     callback_data=f"cat_wine:{restaurant_id}:{cat['category_id']}"
                 )
             ])
-    # Назад -> в действия ресторана
     callback_back = f"rest_info:{restaurant_id}"
     buttons.append([InlineKeyboardButton(text="Назад", callback_data=callback_back)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -182,7 +181,6 @@ def make_items_inline(items: list, is_wine=False) -> InlineKeyboardMarkup:
             buttons.append([InlineKeyboardButton(text=it["name"], callback_data=f"dish_wine:{it['id']}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def smart_trim(text: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text
@@ -201,7 +199,6 @@ def smart_trim(text: str, max_length: int) -> str:
 
 def format_restaurant_info(info: dict) -> str:
     parts = []
-    # Выводим все поля полностью
     if info.get("name"):
         parts.append(f"*{info['name'].strip()}*")
     if info.get("address"):
@@ -220,7 +217,6 @@ def format_restaurant_info(info: dict) -> str:
         parts.append(f"🎉 *Анимация:* {info['animation'].strip()}")
     if info.get("vine_card"):
         parts.append(f"🍷 *Винная карта:* {info['vine_card'].strip()}")
-    # Применяем умное обрезание только для описания
     if info.get("description"):
         trimmed_desc = smart_trim(info["description"].strip(), MAX_CAPTION_LENGTH)
         parts.append(f"📖 *Описание:* {trimmed_desc}")
@@ -329,7 +325,6 @@ async def start_command(message: Message, state: FSMContext):
             reply_markup=ReplyKeyboardRemove()
         )
 
-# Функция для создания inline-клавиатуры для выбора пола
 def make_gender_inline() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -339,7 +334,6 @@ def make_gender_inline() -> InlineKeyboardMarkup:
     ])
     return kb
 
-# Функция для создания reply-клавиатуры для запроса контакта
 def make_contact_keyboard() -> ReplyKeyboardMarkup:
     kb = ReplyKeyboardMarkup(
         keyboard=[
@@ -350,7 +344,6 @@ def make_contact_keyboard() -> ReplyKeyboardMarkup:
     )
     return kb
 
-# Хэндлер получения ФИО – после ввода ФИО отправляем сообщение с inline-клавиатурой для выбора пола
 @dp.message(RegStates.fio)
 async def get_fio(message: Message, state: FSMContext):
     fio_parts = message.text.strip().split()
@@ -362,7 +355,6 @@ async def get_fio(message: Message, state: FSMContext):
     await state.set_state(RegStates.gender)
     await message.answer("Выберите ваш пол:", reply_markup=make_gender_inline())
 
-# Callback-хэндлер для выбора пола
 @dp.callback_query(lambda c: c.data.startswith("gender:"))
 async def cb_gender(callback: types.CallbackQuery, state: FSMContext):
     _, gender = callback.data.split(":", 1)

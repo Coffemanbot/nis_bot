@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, Column, BigInteger, String, Integer, Text, Boolean, DateTime, func
 from sqlalchemy.orm import sessionmaker, declarative_base
-from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
+from config1 import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}?sslmode=disable"
 

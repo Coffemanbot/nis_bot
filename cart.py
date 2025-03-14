@@ -7,7 +7,7 @@ from aiogram.types import Message
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.types import LabeledPrice, PreCheckoutQuery, ContentType, SuccessfulPayment, InlineKeyboardButton, InlineKeyboardMarkup
-from config import DB_CONFIG, PAYMENT_PROVIDER_TOKEN
+from config1 import DB_CONFIG, PAYMENT_PROVIDER_TOKEN
 from db_queries import get_menu_item_by_id, get_wine_item_by_id
 import re
 
@@ -17,8 +17,6 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 db_pool = None
-
-
 def set_db_pool(pool):
     global db_pool
     db_pool = pool
