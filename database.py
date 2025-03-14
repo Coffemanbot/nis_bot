@@ -1,6 +1,6 @@
-from sqlalchemy import create_engine, Column, BigInteger, String, Integer, Text, Boolean
+from sqlalchemy import create_engine, Column, BigInteger, String, Integer, Text, Boolean, DateTime, func
 from sqlalchemy.orm import sessionmaker, declarative_base
-from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
+from config1 import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}?sslmode=disable"
 
@@ -10,7 +10,7 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 class User(Base):
-    __tablename__ = "clients"
+    tablename = "clients"
     user_id = Column(BigInteger, primary_key=True)
     surname = Column(String, nullable=False)
     name = Column(String, nullable=False)
@@ -21,7 +21,7 @@ class User(Base):
 Base.metadata.create_all(bind=engine)
 
 class Menu(Base):
-    __tablename__ = "menu"
+    tablename = "menu"
 
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
     category = Column(String(255))
@@ -41,7 +41,7 @@ class Menu(Base):
     restaurant_id = Column(Integer, primary_key=True, nullable=False, default=0)
 
 class VineCard(Base):
-    __tablename__ = "vine_card"
+    tablename = "vine_card"
 
     id = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
     category = Column(String(255))
@@ -61,7 +61,7 @@ class VineCard(Base):
     restaurant_id = Column(Integer, primary_key=True, nullable=False)
 
 class Restaurant(Base):
-    __tablename__ = "restaurants"
+    tablename = "restaurants"
 
     restaurant_id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(Text, nullable=False)
@@ -76,4 +76,16 @@ class Restaurant(Base):
     contacts = Column(Text)
     vine_card = Column(Text)
 
+Base.metadata.create_all(bind=engine)
+
+
+class Order(Base):
+    tablename = "orders"
+
+    order_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    restaurant_id = Column(Integer, nullable=False)
+    menu_items = Column(Text)
+    wine_items = Column(Text)
+    payment_date = Column(DateTime, nullable=False, server_default=func.now())
 Base.metadata.create_all(bind=engine)

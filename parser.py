@@ -70,8 +70,15 @@ async def get_categories_and_items(page, url: str) -> dict:
     soup = BeautifulSoup(content, "html.parser")
     categories = {}
 
+    # Проходим по всем блокам категории
     for cat_container in soup.select(".deliveryCategoryBlockWrapper.deliveryCategoryContainer"):
         cat_title = cat_container.get("data-title", "Неизвестная категория").strip()
+        # Извлекаем data-id и преобразуем его в целое число
+        try:
+            cat_id = int(cat_container.get("data-id", 0))
+        except ValueError:
+            cat_id = 0
+
         dish_links = []
         for a in cat_container.find_all("a", href=True):
             href = a["href"]
@@ -81,8 +88,11 @@ async def get_categories_and_items(page, url: str) -> dict:
                 dish_links.append(href)
         dish_links = list(set(dish_links))
         if dish_links:
-            categories[cat_title] = dish_links
-
+            # Сохраняем информацию по категории: ссылки и id
+            categories[cat_title] = {
+                "id": cat_id,
+                "urls": dish_links
+            }
     return categories
 
 
@@ -142,7 +152,7 @@ def get_restaurant_id_for_item(item_url: str, restaurant_links: dict):
     return None
 
 
-async def parse_item(url, session, category, semaphore, restaurant_id):
+async def parse_item(url, session, category, cat_id, semaphore, restaurant_id):
     async with semaphore:
         html = await fetch(url, session)
         if html is None:
@@ -223,6 +233,7 @@ async def parse_item(url, session, category, semaphore, restaurant_id):
             item = {
                 "SKU": item_id,
                 "Категория": category,
+                "category_id": cat_id,  # добавляем идентификатор категории
                 "Название": name,
                 "Цена": price,
                 "Описание": description,
@@ -246,11 +257,12 @@ async def save_items_to_db(db_pool, items: list, table_name: str):
 
     query = f"""
         INSERT INTO {table_name}
-            (id,restaurant_id, category, name, price, calories, proteins, fats, carbohydrates, weight,
+            (id, restaurant_id, category, category_id, name, price, calories, proteins, fats, carbohydrates, weight,
              description, composition, allergens, image, availability, timetable)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         ON CONFLICT (id, restaurant_id) DO UPDATE
         SET category = EXCLUDED.category,
+            category_id = EXCLUDED.category_id,
             name = EXCLUDED.name,
             price = EXCLUDED.price,
             calories = EXCLUDED.calories,
@@ -277,6 +289,7 @@ async def save_items_to_db(db_pool, items: list, table_name: str):
             continue
 
         category = item.get("Категория", "Нет категории")
+        category_id = item.get("category_id", 0)  # новый параметр
         name = item.get("Название", "Нет названия")
         price = item.get("Цена", "Нет цены")
         description = item.get("Описание", "Нет описания")
@@ -295,6 +308,7 @@ async def save_items_to_db(db_pool, items: list, table_name: str):
             sku,
             rest_id,
             category,
+            category_id,
             name,
             price,
             calories,
@@ -346,11 +360,11 @@ async def main():
                         await page.close()
 
                         tasks = []
-                        for category, urls in categories_dict.items():
-                            for url in urls:
-                                tasks.append(
-                                    parse_item(url, session, category, semaphore, restaurant_id)
-                                )
+                        for category, details in categories_dict.items():
+                            cat_id = details["id"]  # извлекаем category_id из details
+                            for url in details["urls"]:
+                                # Передаём category, cat_id, semaphore и restaurant_id
+                                tasks.append(parse_item(url, session, category, cat_id, semaphore, restaurant_id))
                         results = await asyncio.gather(*tasks)
                         for item in results:
                             if item:
@@ -365,11 +379,10 @@ async def main():
                         await page.close()
 
                         tasks = []
-                        for category, urls in wine_categories_dict.items():
-                            for url in urls:
-                                tasks.append(
-                                    parse_item(url, session, category, semaphore, restaurant_id)
-                                )
+                        for category, details in wine_categories_dict.items():
+                            cat_id = details["id"]
+                            for url in details["urls"]:
+                                tasks.append(parse_item(url, session, category, cat_id, semaphore, restaurant_id))
                         results = await asyncio.gather(*tasks)
                         for item in results:
                             if item:

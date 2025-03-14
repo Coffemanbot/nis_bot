@@ -2,8 +2,9 @@ import asyncio
 import asyncpg
 import os
 import re
+import cart
 import logging
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import (
     Message,
     BotCommand,
@@ -21,14 +22,9 @@ from aiogram.fsm.state import StatesGroup, State
 from config import BOT_TOKEN, DB_CONFIG
 from parser import periodic_parser
 from cart import router as cart_router, set_db_pool, get_cart_items, add_item_to_cart, clear_cart
+from db_queries import get_menu_item_by_id, get_wine_item_by_id
 
 db_pool = None
-
-async def connect_db():
-    global db_pool
-    if db_pool is None:
-        db_pool = await asyncpg.create_pool(**DB_CONFIG)
-        set_db_pool(db_pool)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,6 +37,12 @@ MAX_CAPTION_LENGTH = 1024
 user_selected_restaurant = {}
 restaurants_mapping = {}
 
+
+async def connect_db():
+    global db_pool
+    if db_pool is None:
+        db_pool = await asyncpg.create_pool(**DB_CONFIG)
+        set_db_pool(db_pool)
 
 
 async def set_main_menu():
@@ -69,65 +71,45 @@ async def get_restaurant_info(restaurant_id: int) -> dict:
 async def get_menu_categories(restaurant_id: int) -> list:
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT DISTINCT category 
+            SELECT DISTINCT category, category_id
             FROM menu
             WHERE restaurant_id = $1
             ORDER BY category;
         """, restaurant_id)
-    return [r["category"] for r in rows]
+    return [{"category": r["category"], "category_id": r["category_id"]} for r in rows]
 
 
-async def get_menu_items(restaurant_id: int, category: str) -> list:
+async def get_menu_items(restaurant_id: int, category_id: int) -> list:
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id, name, price, calories, proteins, fats, carbohydrates, weight, description, allergens, availability, image 
+            SELECT id, name, price, calories, proteins, fats, carbohydrates, weight, description, allergens, availability, image, category, restaurant_id, category_id
             FROM menu
-            WHERE restaurant_id = $1 AND category = $2
+            WHERE restaurant_id = $1 AND category_id = $2
             ORDER BY name;
-        """, restaurant_id, category)
+        """, restaurant_id, category_id)
     return [dict(r) for r in rows]
-
-
-async def get_menu_item_by_id(item_id: int) -> dict:
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("""
-            SELECT id, name, price, calories, proteins, fats, carbohydrates, weight, description, allergens, availability, image, category, restaurant_id
-            FROM menu
-            WHERE id = $1
-        """, item_id)
-    return dict(row) if row else {}
 
 
 async def get_wine_categories(restaurant_id: int) -> list:
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT DISTINCT category
+            SELECT DISTINCT category, category_id
             FROM vine_card
             WHERE restaurant_id = $1
             ORDER BY category;
         """, restaurant_id)
-    return [r["category"] for r in rows]
+    return [{"category": r["category"], "category_id": r["category_id"]} for r in rows]
 
 
-async def get_wine_items(restaurant_id: int, category: str) -> list:
+async def get_wine_items(restaurant_id: int, category_id: int) -> list:
     async with db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id, name, price, calories, proteins, fats, carbohydrates, weight, description, allergens, availability, image
+            SELECT id, name, price, calories, proteins, fats, carbohydrates, weight, description, allergens, availability, image, category, restaurant_id, category_id
             FROM vine_card
-            WHERE restaurant_id = $1 AND category = $2
+            WHERE restaurant_id = $1 AND category_id = $2
             ORDER BY name;
-        """, restaurant_id, category)
+        """, restaurant_id, category_id)
     return [dict(r) for r in rows]
-
-
-async def get_wine_item_by_id(item_id: int) -> dict:
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("""
-            SELECT id, name, price, calories, proteins, fats, carbohydrates, weight, description, allergens, availability, image, category, restaurant_id
-            FROM vine_card
-            WHERE id = $1
-        """, item_id)
-    return dict(row) if row else {}
 
 
 def make_restaurants_reply_keyboard(restaurants: list) -> ReplyKeyboardMarkup:
@@ -148,10 +130,19 @@ def make_categories_inline(restaurant_id: int, categories: list, is_wine=False) 
     buttons = []
     for cat in categories:
         if not is_wine:
-            buttons.append([InlineKeyboardButton(text=cat, callback_data=f"cat_menu:{restaurant_id}:{cat}")])
+            buttons.append([InlineKeyboardButton(
+                text=cat["category"],
+                callback_data=f"cat_menu:{restaurant_id}:{cat['category_id']}"
+            )])
         else:
-            buttons.append([InlineKeyboardButton(text=cat, callback_data=f"cat_wine:{restaurant_id}:{cat}")])
-    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"back_to_restaurant_actions:{restaurant_id}")])
+            buttons.append([InlineKeyboardButton(
+                text=cat["category"],
+                callback_data=f"cat_wine:{restaurant_id}:{cat['category_id']}"
+            )])
+    buttons.append([InlineKeyboardButton(
+        text="🔙 Назад",
+        callback_data=f"back_to_restaurant_actions:{restaurant_id}"
+    )])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -257,20 +248,15 @@ async def send_item_info(message: Message, item: dict, is_wine=False):
         f"⚠️ *Аллергены:* {item.get('allergens', 'N/A')}\n\n"
         f"🛒 Присутствует в наличии: {'да' if item.get('availability') else 'нет'}"
     )
-    category = item.get("category", "")
     restaurant_id = item.get("restaurant_id")
+    category_id = item.get("category_id", 0)
     # Callback для возврата в меню с блюдами выбранной категории:
     if not is_wine:
-        back_cb = f"back_to_items_menu:{restaurant_id}:{category}"
+        back_cb = f"back_to_items_menu:{restaurant_id}:{category_id}"
     else:
-        back_cb = f"back_to_items_wine:{restaurant_id}:{category}"
+        back_cb = f"back_to_items_wine:{restaurant_id}:{category_id}"
 
-    price_str = item.get('price', '0')
-    price_parts = price_str.split()  # разделяет строку по пробелам
-    price_int = int(price_parts[0])*100 if price_parts else 0
-    short_item_name = item['name'].replace(" ", "_")[:10]
-
-    add_to_cart_cb = f"add_to_cart:{item['id']}:{restaurant_id}:{is_wine}:{short_item_name}:{price_int}"
+    add_to_cart_cb = f"add_to_cart:{restaurant_id}:{item['id']}:{is_wine}"
     add_button = InlineKeyboardButton(text="Добавить в корзину", callback_data=add_to_cart_cb)
     view_cart_button = InlineKeyboardButton(text="🛒 Корзина", callback_data="view_cart")
     back_button = InlineKeyboardButton(text="🔙 Назад", callback_data=back_cb)
@@ -296,7 +282,6 @@ async def send_item_info(message: Message, item: dict, is_wine=False):
             reply_markup=new_kb
         )
 
-
 async def send_menu_categories(message: Message, restaurant_id: int):
     categories = await get_menu_categories(restaurant_id)
     if not categories:
@@ -313,6 +298,8 @@ async def send_wine_categories(message: Message, restaurant_id: int):
         return
     inline_kb = make_categories_inline(restaurant_id, categories, is_wine=True)
     await message.answer("Выберите категорию вин:", reply_markup=inline_kb)
+
+@dp.message.register(cart.success_payment_handler, F.successful_payment)
 
 
 @dp.message(lambda msg: msg.text and msg.text.strip().lower() == "назад")
@@ -442,6 +429,8 @@ async def get_phone(message: Message, state: FSMContext):
 
 @dp.message()
 async def handle_text_restaurant_selection(message: Message):
+    if not message.text:
+        return  # Если текст отсутствует, просто завершаем обработку
     text = message.text.strip().lower()
     if text in restaurants_mapping:
         restaurant_id = restaurants_mapping[text]
@@ -456,34 +445,12 @@ async def handle_text_restaurant_selection(message: Message):
 async def back_to_restaurants_callback(callback: types.CallbackQuery):
     await callback.message.delete()
     restaurants = await get_restaurants_list()
+    global restaurants_mapping
+    restaurants_mapping = {r["name"].strip().lower(): r["id"] for r in restaurants}
     kb = make_restaurants_reply_keyboard(restaurants)
     await bot.send_message(callback.from_user.id, "Выберите ресторан:", reply_markup=kb)
     await callback.answer()
 
-@dp.callback_query(lambda c: c.data == "view_cart")
-async def view_cart_callback(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    # Получаем товары корзины (функция get_cart_items уже определена в cart.py)
-    items = await get_cart_items(user_id)
-    if not items:
-        await callback.message.answer("Корзина пуста.")
-        await callback.answer()
-        return
-
-    total = sum(i['price'] * i['count'] for i in items)
-    cart_text = "Ваш заказ:\n\n"
-    for item in items:
-        item_total = item['price'] * item['count']
-        cart_text += f"{item['item_name']} x{item['count']} - {item_total / 100:.2f} руб.\n"
-    cart_text += f"\nИтого: {total / 100:.2f} руб."
-
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="Оплатить заказ", callback_data="checkout")],
-        [types.InlineKeyboardButton(text="Очистить корзину", callback_data="clear_cart")]
-    ])
-
-    await callback.message.answer(cart_text, reply_markup=kb)
-    await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("menu:"))
 async def menu_callback(callback: types.CallbackQuery):
@@ -503,38 +470,45 @@ async def wine_callback(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data.startswith("cat_menu:"))
 async def cat_menu_callback(callback: types.CallbackQuery):
-    _, rest_id_str, category = callback.data.split(":", 2)
+    _, rest_id_str, cat_id_str = callback.data.split(":", 2)
     restaurant_id = int(rest_id_str)
-    items = await get_menu_items(restaurant_id, category)
+    category_id = int(cat_id_str)
+    items = await get_menu_items(restaurant_id, category_id)
     if not items:
         await callback.message.answer("В этой категории пока нет блюд.")
         await callback.answer()
         return
     inline_kb = make_items_inline(items, is_wine=False)
-    back_btn = InlineKeyboardButton(text="🔙 Назад", callback_data=f"back_to_menu_categories:{restaurant_id}")
+    back_btn = InlineKeyboardButton(
+        text="🔙 Назад",
+        callback_data=f"back_to_menu_categories:{restaurant_id}:{category_id}"
+    )
     inline_kb.inline_keyboard.append([back_btn])
     await callback.message.answer(
-        text=f"🍽 Меню категории *{category}*:",
+        text=f"🍽 Меню выбранной категории:",
         parse_mode="Markdown",
         reply_markup=inline_kb
     )
     await callback.answer()
 
-
 @dp.callback_query(lambda c: c.data.startswith("cat_wine:"))
 async def cat_wine_callback(callback: types.CallbackQuery):
-    _, rest_id_str, category = callback.data.split(":", 2)
+    _, rest_id_str, cat_id_str = callback.data.split(":", 2)
     restaurant_id = int(rest_id_str)
-    items = await get_wine_items(restaurant_id, category)
+    category_id = int(cat_id_str)
+    items = await get_wine_items(restaurant_id, category_id)
     if not items:
         await callback.message.answer("В этой категории пока нет вин/напитков.")
         await callback.answer()
         return
     inline_kb = make_items_inline(items, is_wine=True)
-    back_btn = InlineKeyboardButton(text="🔙 Назад", callback_data=f"back_to_wine_categories:{restaurant_id}")
+    back_btn = InlineKeyboardButton(
+        text="🔙 Назад",
+        callback_data=f"back_to_wine_categories:{restaurant_id}:{category_id}"
+    )
     inline_kb.inline_keyboard.append([back_btn])
     await callback.message.answer(
-        text=f"🍷 Винная карта категории *{category}*:",
+        text=f"🍷 Винная карта выбранной категории:",
         parse_mode="Markdown",
         reply_markup=inline_kb
     )
@@ -545,7 +519,7 @@ async def cat_wine_callback(callback: types.CallbackQuery):
 async def dish_menu_callback(callback: types.CallbackQuery):
     _, item_id_str = callback.data.split(":", 1)
     item_id = int(item_id_str)
-    dish = await get_menu_item_by_id(item_id)
+    dish = await get_menu_item_by_id(db_pool, item_id)
     if dish:
         await send_item_info(callback.message, dish, is_wine=False)
     else:
@@ -557,7 +531,7 @@ async def dish_menu_callback(callback: types.CallbackQuery):
 async def dish_wine_callback(callback: types.CallbackQuery):
     _, item_id_str = callback.data.split(":", 1)
     item_id = int(item_id_str)
-    wine = await get_wine_item_by_id(item_id)
+    wine = await get_wine_item_by_id(db_pool, item_id)
     if wine:
         await send_item_info(callback.message, wine, is_wine=True)
     else:
