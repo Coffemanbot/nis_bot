@@ -75,5 +75,6 @@ jobs:
           script: |
             cd /home/kostas/
             echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+            docker compose -f /home/kostas/docker-compose.yml down
             docker compose -f /home/kostas/docker-compose.yml  pull
             docker compose up -d --build
