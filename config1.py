@@ -16,4 +16,3 @@ DB_CONFIG = {
     "port": DB_PORT
 }
 BASE_URL = os.environ.get("BASE_URL", "https://coffeemania.ru")
-print("Hello worldd")

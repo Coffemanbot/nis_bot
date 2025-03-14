@@ -1,0 +1,7 @@
+name: CI/CD PIPELINE
+
+on:
+  push:
+    branches: [ "main"]
+  pull_request:
+    branches: ["main"]

@@ -5,7 +5,7 @@ from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram.types import LabeledPrice, PreCheckoutQuery, ContentType, SuccessfulPayment
-from config import DB_CONFIG, PAYMENT_PROVIDER_TOKEN
+from config1 import DB_CONFIG, PAYMENT_PROVIDER_TOKEN
 from db_queries import get_menu_item_by_id, get_wine_item_by_id
 import re
 
