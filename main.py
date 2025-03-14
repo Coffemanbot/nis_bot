@@ -19,12 +19,18 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from config1 import BOT_TOKEN, DB_CONFIG
+from config import BOT_TOKEN, DB_CONFIG
 from parser import periodic_parser
 from cart import router as cart_router, set_db_pool, get_cart_items, add_item_to_cart, clear_cart
 from db_queries import get_menu_item_by_id, get_wine_item_by_id
 
 db_pool = None
+
+async def connect_db():
+    global db_pool
+    if db_pool is None:
+        db_pool = await asyncpg.create_pool(**DB_CONFIG)
+        set_db_pool(db_pool)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,12 +43,6 @@ MAX_CAPTION_LENGTH = 1024
 user_selected_restaurant = {}
 restaurants_mapping = {}
 
-
-async def connect_db():
-    global db_pool
-    if db_pool is None:
-        db_pool = await asyncpg.create_pool(**DB_CONFIG)
-        set_db_pool(db_pool)
 
 
 async def set_main_menu():
@@ -180,6 +180,15 @@ def smart_trim(text: str, max_length: int) -> str:
     else:
         return text[:max_length - 3] + "..."
 
+@dp.message(F.successful_payment)
+async def successful_payment_handler(message: Message):
+    logger.info(f"Получен успешный платеж: {message.successful_payment}")
+    await clear_cart(message.from_user.id)
+    await message.answer(
+        f"Платеж на сумму {message.successful_payment.total_amount // 100} "
+        f"{message.successful_payment.currency} прошёл успешно!\nСпасибо за покупку!"
+    )
+
 
 def format_restaurant_info(info: dict) -> str:
     def valid(value):
@@ -299,8 +308,6 @@ async def send_wine_categories(message: Message, restaurant_id: int):
     inline_kb = make_categories_inline(restaurant_id, categories, is_wine=True)
     await message.answer("Выберите категорию вин:", reply_markup=inline_kb)
 
-@dp.message.register(cart.successful_payment_handler, F.successful_payment)
-
 
 @dp.message(lambda msg: msg.text and msg.text.strip().lower() == "назад")
 async def handle_back_category(message: Message):
@@ -371,8 +378,6 @@ async def get_fio(message: Message, state: FSMContext):
     )
     await state.set_state(RegStates.gender)
     await message.answer("Выберите ваш пол:", reply_markup=gender_keyboard)
-
-
 @dp.message(RegStates.gender)
 async def get_gender(message: Message, state: FSMContext):
     gender = message.text.strip()
