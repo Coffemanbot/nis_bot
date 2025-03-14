@@ -39,7 +39,7 @@ jobs:
           passphrase: ${{secrets.SSH_PASS}}
           port: 22
           source: "docker-compose.yml"
-          target: "/home/username/project/docker-compose.yml"
+          target: "/home/kostas/"
 
       - name: Деплой через SSH
         if: github.ref == 'refs/heads/main'
@@ -48,10 +48,11 @@ jobs:
           host: ${{secrets.SSH_HOST}}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
+          passphrase: ${{secrets.SSH_PASS}}
           port: 22
           tty: true
           script: |
             cd /home/username/project
             echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-            docker compose -f /Users/konstantinokriashvili/PycharmProjects/nis_bot/docker-compose.yml  pull
+            docker compose -f /home/kostas/docker-compose.yml  pull
             docker compose up -d --build
