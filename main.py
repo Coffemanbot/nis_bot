@@ -281,10 +281,10 @@ async def send_item_info(message: Message, item: dict, is_wine=False):
             photo=image_path,
             caption=item_text,
             parse_mode="Markdown",
-            reply_markup=kb
+            reply_markup=new_kb
         )
     else:
-        await message.answer(rest_text, parse_mode="Markdown", reply_markup=kb)
+        await message.answer(rest_text, parse_mode="Markdown", reply_markup=new_kb)
 
 async def send_menu_categories(message: Message, restaurant_id: int):
     categories = await get_menu_categories(restaurant_id)
