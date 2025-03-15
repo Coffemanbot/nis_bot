@@ -73,6 +73,21 @@ Telegram-бот предлагает пользователям современ
 
 [![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?logo=github-actions&logoColor=white)](#) [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](#) [![Postgres](https://img.shields.io/badge/Postgres-%23316192.svg?logo=postgresql&logoColor=white)](#) 
 [![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=fff)](#) [![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?logo=ubuntu&logoColor=white)](#)
+
+
+## Немного про базу данных и виртуальную машину
+База данных развернута на ВМ от Yandex.Cloud
+
+Немного про параметры виртуальной машины:
+
+- Платформа: Intel Ice Lake
+- RAM: 2 GB
+- Объем диска: 20 GB
+
+Параметры не особо крутые, но для такого проекта данная машина подходит отлично! В будущем можно будет сделать резервное копирование, если захотим вывести данного бота "в массы".
+
+База данных работает на СУБД **PostgreSQL**, что делает ее достаточно простой в управлении.
+
 ## Контейнерезация и сборка проекта
 ### Какие файлы содержит?
 - **Dockerfile** – описывает процесс сборки Docker-образа
