@@ -276,15 +276,24 @@ async def send_item_info(message: Message, item: dict, is_wine=False):
 
     image_path = item.get("image", "")
 
-    if image_path and image_path.startswith("http"):
-        await message.answer_photo(
-            photo=image_path,
-            caption=item_text,
-            parse_mode="Markdown",
-            reply_markup=new_kb
-        )
+    if image_path:
+        if image_path.startswith("http"):
+            await message.answer_photo(
+                photo=image_path,
+                caption=item_text,
+                parse_mode="Markdown",
+                reply_markup=new_kb
+            )
+        else:
+            with open(image_path, "rb") as photo_file:
+                await message.answer_photo(
+                    photo=photo_file,
+                    caption=item_text,
+                    parse_mode="Markdown",
+                    reply_markup=new_kb
+                )
     else:
-        await message.answer(rest_text, parse_mode="Markdown", reply_markup=new_kb)
+        await message.answer(item_text, parse_mode="Markdown", reply_markup=new_kb)
 
 async def send_menu_categories(message: Message, restaurant_id: int):
     categories = await get_menu_categories(restaurant_id)

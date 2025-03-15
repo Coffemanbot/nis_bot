@@ -9,7 +9,7 @@ import asyncpg
 from bs4 import BeautifulSoup
 import asyncio
 import random
-from config1 import DB_CONFIG
+from config import DB_CONFIG
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
