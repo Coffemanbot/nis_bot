@@ -274,12 +274,12 @@ async def send_item_info(message: Message, item: dict, is_wine=False):
         [back_button]
     ])
 
-    image_path = info.get("image", "")
+    image_path = item.get("image", "")
 
     if image_path and image_path.startswith("http"):
         await message.answer_photo(
             photo=image_path,
-            caption=rest_text,
+            caption=item_text,
             parse_mode="Markdown",
             reply_markup=kb
         )
